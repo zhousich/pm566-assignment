@@ -1,0 +1,27 @@
+on: push
+name: Check Render
+jobs:  
+  check-renders:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/sta523-fa22/sta523-base:latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Install Missing Packages
+      run: |
+        missing = checklist::missing_pkgs(dir = "./", glob = "submit.qmd")
+        if(length(missing)){
+            install.packages("pak")
+            pak::pkg_install(missing, dependencies = TRUE)
+        }
+      shell: Rscript {0}
+    - name: Check Renders
+      run: |
+        checklist::check_qmd_renders("submit.qmd")
+      shell: Rscript {0}
+    - name: Create artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: submit-html
+        path: submit.html
