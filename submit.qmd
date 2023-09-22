@@ -97,6 +97,7 @@ filter(!(region %in% NA)) %>%
   ggplot(mapping = aes(x=dewpoint, y=rh, color=region))+
   geom_jitter() + 
   stat_smooth(method=lm)
+
 ```
 
 ### **5. Use `geom_bar` to create barplots of the weather stations by elevation category colored by region**
@@ -114,6 +115,7 @@ filter(!(region %in% NA)) %>%
 ### **6. Use `stat_summary` to examine mean dew point and wind speed by region with standard deviation error bars**
 
 ```{r}
+library(Hmisc)
 met_avg %>%
 filter(!(region %in% NA)) %>%
   ggplot(mapping=aes(x=region, y=dewpoint)) +
