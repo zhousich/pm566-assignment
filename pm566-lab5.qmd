@@ -1,0 +1,168 @@
+---
+title: "pm566-lab5"
+author: "Stella Zhou"
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+```{r}
+library(R.utils)
+if (!file.exists("met_all.gz"))
+  download.file(
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz",
+    destfile = "met_all.gz",
+    method   = "libcurl",
+    timeout  = 60
+    )
+dat <- data.table::fread("met_all.gz")
+```
+
+```{r}
+library(data.table)
+library(dplyr)
+library(dtplyr)
+# Download the data
+stations <- fread("ftp://ftp.ncdc.noaa.gov/pub/data/noaa/isd-history.csv")
+stations[, USAF := as.integer(USAF)]
+
+# Dealing with NAs and 999999
+stations[, USAF   := fifelse(USAF == 999999, NA_integer_, USAF)]
+stations[, CTRY   := fifelse(CTRY == "", NA_character_, CTRY)]
+stations[, STATE  := fifelse(STATE == "", NA_character_, STATE)]
+
+# Selecting the three relevant columns, and keeping unique records
+stations <- unique(stations[, list(USAF, CTRY, STATE)])
+
+# Dropping NAs
+stations <- stations[!is.na(USAF)]
+
+# Removing duplicates
+stations[, n := 1:.N, by = .(USAF)]
+stations <- stations[n == 1,][, n := NULL]
+
+```
+
+```{r}
+dat <- merge(x = dat, y = stations, by.x = "USAFID", by.y = "USAF", all.x = TRUE, all.y = FALSE)
+head(dat[, list(USAFID, WBAN, STATE)], n = 4)
+```
+
+## 1.**Representative station for the US**
+
+```{r}
+dat_stations <- dat[, .(
+    wind.sp   = mean(wind.sp, na.rm = TRUE),
+    atm.press = mean(atm.press, na.rm = TRUE),
+    temp      = mean(temp, na.rm = TRUE)
+  ), by = .(USAFID, STATE)]
+
+dat_stations[, temp.med   := quantile(temp, probs = .5, na.rm = TRUE)]
+dat_stations[, atmp.med   := quantile(atm.press, probs = .5, na.rm = TRUE)]
+dat_stations[, windsp.med := quantile(wind.sp, probs = .5, na.rm = TRUE)]
+```
+
+```{r}
+dat_stations[which.min(abs(temp - temp.med))]
+dat_stations[which.min(abs(wind.sp - windsp.med))]
+dat_stations[which.min(abs(atm.press - atmp.med))]
+```
+
+The median of temperature, wind speed, and ATM pressure are in three different states.
+
+## 2. per state
+
+```{r}
+dat_stations[, temp.med_s   := quantile(temp, probs = .5, na.rm = TRUE), by = STATE]
+dat_stations[, atmp.med_s   := quantile(atm.press, probs = .5, na.rm = TRUE), by = STATE]
+dat_stations[, windsp.med_s := quantile(wind.sp, probs = .5, na.rm = TRUE), by = STATE]
+
+dat_stations[, tempdif  := which.min(abs(temp - temp.med_s)), by=STATE]
+dat_stations[, recordid := 1:.N, by = STATE]
+dat_temp <- dat_stations[recordid == tempdif, .(USAFID, temp, temp.med_s, STATE)]
+head(dat_temp)
+
+
+
+```
+
+## 3. mid point
+
+```{r}
+dat_stations<- unique(dat[, .(USAFID, STATE, lon, lat)])
+dat_stations[, n := 1:.N, by = USAFID]
+dat_stations<- dat_stations[n == 1]
+
+dat_stations[, lat_med := quantile(lat, probs = .5, na.rm = TRUE), by = STATE]
+dat_stations[, lon_med := quantile(lon, probs = .5, na.rm = TRUE), by = STATE]
+
+```
+
+euclidean distance
+
+```{r}
+dat_stations[,  distance := sqrt((lat - lat_med)^2 + (lon - lon_med)^2)] 
+dat_stations[, minrecord := which.min(distance), by = STATE]
+dat_stations[, n := 1:.N, by = STATE] 
+dat_location <- dat_stations[n == minrecord, .(USAFID, STATE, lon, lat)] 
+dat_location
+```
+
+```{r}
+all_stations <- dat[, .(USAFID, lat, lon, STATE)][, .SD[1], by = "USAFID"]
+
+dat_temp <- merge(
+  x = dat_temp,
+  y = all_stations,
+  by = "USAFID",
+  all.x = TRUE, all.y = FALSE
+)
+
+library(leaflet)
+
+dat1 <- dat_location[, .(lon, lat)]
+dat1[, type := "Mid-point of state"]
+
+dat2 <- dat_temp[, .(lon, lat)]
+dat2[, type := "Mid-point of temperature"]
+dat_comb <- rbind(dat1, dat2)
+# Copy paste from previous lab
+rh_pal <- colorFactor(c('blue', 'red'),
+                       domain = as.factor(dat_comb$type))
+leaflet(dat_comb) %>%
+  addProviderTiles("OpenStreetMap") %>%
+  addCircles(lng = ~lon, lat = ~lat, color=~rh_pal(type), opacity=1,fillOpacity=1, radius=500)
+```
+
+## **4. Means of means**
+
+```{r}
+ state_avg_temp <- dat %>%
+  group_by(STATE) %>%
+  summarize(avg_temp = mean(temp, na.rm = TRUE))
+state_avg_temp <- state_avg_temp %>%
+  mutate(
+    classification = case_when(
+      avg_temp < 20 ~ "Low",
+      avg_temp >= 20 & avg_temp < 25 ~ "Mid",
+      avg_temp >= 25 ~ "High",
+      TRUE ~ "Unknown"
+    )
+  )
+print(state_avg_temp)
+```
+
+```{r}
+summary_table <- dat %>%
+  summarize(
+    Number_of_entries = n(),
+    Number_of_NA_entries = sum(is.na(temp) | is.na(wind.sp) | is.na(atm.press)),
+    Number_of_stations = n_distinct(USAFID),
+    Number_of_states_included = n_distinct(STATE),
+    Mean_temperature = mean(temp, na.rm = TRUE),
+    Mean_wind_speed = mean(wind.sp, na.rm = TRUE),
+    Mean_atmospheric_pressure = mean(atm.press, na.rm = TRUE)
+  )
+print(summary_table)
+```
