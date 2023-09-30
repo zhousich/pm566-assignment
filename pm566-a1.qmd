@@ -1,0 +1,215 @@
+---
+title: "pm566-assignment1"
+author: "Stella Zhou"
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## 1. Import datasets
+
+```{r}
+epa02 <- read.csv("EPA2002.csv")
+dim(epa02) 
+str(epa02)
+summary(epa02)
+```
+
+```{r}
+epa22 <- read.csv("EPA2022.csv")
+dim(epa22)
+str(epa22)
+summary(epa22)
+```
+
+Daily PM2.5
+
+```{r}
+summary(epa02$Daily.Mean.PM2.5.Concentration)
+summary(epa22$Daily.Mean.PM2.5.Concentration)
+```
+
+```{r}
+sum(is.na(epa02$Daily.Mean.PM2.5.Concentration))
+sum(is.na(epa22$Daily.Mean.PM2.5.Concentration))
+```
+
+There are a total of 20 variables for each year's EPA summary. The summary data for Daily.Mean.PM2.5.Concentration shows that there are no missing values for 2002 and 2022, however, there is a neagtive minimum value for year 2022, suggesting that we need to take a closer look at the data for issues.
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(data.table)
+```
+
+```{r}
+epa02 <- epa02 %>%
+    filter(Daily.Mean.PM2.5.Concentration > 0)
+summary(epa02$Daily.Mean.PM2.5.Concentration)
+```
+
+```{r}
+epa22 <- epa22 %>%
+    filter(Daily.Mean.PM2.5.Concentration > 0)
+summary(epa22$Daily.Mean.PM2.5.Concentration)
+```
+
+## 2. Combine the two years of data into one data frame
+
+```{r}
+epa_merge = merge(x = epa02,y = epa22, all=TRUE)
+```
+
+Transform Date from chr to date format, and then create a Year variable (numeric)
+
+```{r}
+epa_merge$Date <- as.Date(epa_merge$Date,"%m/%d/%Y") 
+epa_merge$Year <- as.numeric(format(epa_merge$Date,'%Y')) 
+str(epa_merge)
+```
+
+rename variables
+
+```{r}
+epa_merge <- 
+  rename(epa_merge, 
+         dailyPM2.5 = Daily.Mean.PM2.5.Concentration,
+         dailyAQI = DAILY_AQI_VALUE,
+         lat = SITE_LATITUDE,
+         long = SITE_LONGITUDE)
+```
+
+## 3. Create map using leaflet()
+
+```{r}
+library(leaflet)
+
+temp.pal <- colorFactor(c('skyblue','slateblue'), domain = epa_merge$Year) # Palette creation
+  
+leaflet(epa_merge) %>% 
+  addProviderTiles('CartoDB.Positron') %>%
+  addCircles(
+    lat = ~lat, lng = ~long, color = ~temp.pal(Year),
+    opacity = 1, fillOpacity = 1, radius = 100) %>%
+  addLegend('bottomleft', pal=temp.pal, values=epa_merge$Year,
+            title='Year', opacity=1)
+```
+
+There are more stations in 2022 compared to 2002, and these new sites especially arose in population dense areas such as San Francisco, Los Angeles, and San Diego. This is important becuase population dense areas are usually polluted due to transportation, hence monitoring PM2.5 in such areas help environmentalists understand patterns and advocate for environment friendly policies.
+
+## 4. check for missing pm2.5 value and summarize pattern
+
+```{r}
+sum(is.na(epa_merge$dailyPM2.5))
+```
+
+```{r,results='hide'}
+setorder(epa_merge, dailyPM2.5)
+epa_merge %>%
+  select(Date, dailyPM2.5, dailyAQI, Site.Name)
+#data frame hidden becuase it's too large
+```
+
+```{r,results='hide'}
+setorder(epa_merge, -dailyPM2.5)
+epa_merge %>%
+  select(Date, dailyPM2.5, dailyAQI, Site.Name)
+#data frame hidden becuase it's too large
+```
+
+There does not appear to be a pattern for the best air quality dates in terms of location, however, the lowest daily PM2.5 values appeared in mid-and late January 2002 and 2022. The dates with abnormally high daily PM2.5 values corresponded to the wild fires dates in late summer in California, 2022. For example, the highest daily PM2.5 concentration of 302.5 ug/m\^3 LC was recorded in Yreka on July 31st, 2022, corresponding to the McKinney fire on July 29th, 2022. Following sites also coincided with the other 2022 wild fires such as the Mosquito fire in September and October.
+
+## 5. Explore the main question of interest at three different spatial levels: state, county, sites in LA
+
+### State: Histogram
+
+```{r}
+epa_merge$Year1 <- as.factor(epa_merge$Year)
+```
+
+```{r}
+library(ggplot2)
+epa_merge$Year1 <- relevel(epa_merge$Year1,'2022')
+ggplot(epa_merge, aes(x = dailyPM2.5,  fill = Year1)) +
+  geom_histogram(bins=100, color='black',alpha=0.5,position = 'identity') +
+  labs(title="Distribution of sites by Daily PM2.5 Concentration in 2002 and 2022", x="Daily PM2.5 Concentration", y= "Count")+
+  xlim(0,100)
+```
+
+```{r}
+ggplot(epa_merge, aes(x = dailyPM2.5,  fill = Year1)) +
+  geom_histogram(bins=100,position = 'dodge') +
+  labs(title="Distribution of sites that reported unhealthy Daily PM2.5 Concentration in 2002 and 2022", x="Daily PM2.5 Concentration", y= "Count")+
+  xlim(35,310)
+```
+
+```{r}
+epa_merge %>%
+  group_by(Year) %>%
+  summarise(mean = mean(dailyPM2.5,na.rm = TRUE),
+            median = median(dailyPM2.5,na.rm = TRUE),
+            sd = sd(dailyPM2.5),
+            min = min(dailyPM2.5),
+            max = max(dailyPM2.5),
+            IQR = IQR(dailyPM2.5,na.rm = TRUE))
+```
+
+California reported more measurements in 2022 since more sites has been built in the 20 years.
+
+The histogram shows a positive skew of PM2.5 concentration for both years.
+
+According to the summary statistics created, the average daily PM2.5 concentration was higher in 2002 (16.12 ug/m\^3 LC) than 2022 (8.63 ug/m\^3 LC), as well as a higher median, standard deviation, and IQR. The maximum measurement as mentioned in the previous question, was 302.5 ug/m\^3 LC in 2022.
+
+According to the EPA, The National Ambient Air Quality Standards (NAAQS) for PM2.5 is set standards thet a 24-hour PM2.5 concentration of 35 ug/m\^3 LC and above to be unhealthy for sensitive groups. Therefore to understand the change in unhealthy air quality in the 20 years, a second histogram is created to show the distribution PM2.5 concentration of 35 ug/m\^3 LC and above in California. The graph shows that there are less sites that reported unhealthy air quality days in 2022 compared to 2002. In summary, the overall air quality has improved over the 20 years.
+
+### County
+
+```{r}
+ggplot(epa_merge) +
+  geom_point(mapping = aes(x = COUNTY, y = dailyPM2.5, colour = factor(Year))) +
+  scale_color_manual(values=c("slateblue", "skyblue")) +
+  labs(x = "County", y = "Daily. PM2.5 Concentration (ug/m^3 LC)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = .5, size = 5))
+```
+
+```{r}
+epa_merge %>%
+  group_by(COUNTY,Year) %>%
+  summarise(mean = mean(dailyPM2.5,na.rm = TRUE),
+            median = median(dailyPM2.5,na.rm = TRUE),
+            sd = sd(dailyPM2.5),
+            min = min(dailyPM2.5),
+            max = max(dailyPM2.5),
+            IQR = IQR(dailyPM2.5,na.rm = TRUE))
+```
+
+The highest daily PM2.5 concentrations appeared in mostly in the counties that were heavily influenced by the wildfires in 2022, for example, Mariposa, Nevada, Placer, Riverside, Siskiyou, and Trinity county.
+
+### LA County
+
+```{r}
+epa_LA <- epa_merge %>%
+  filter(COUNTY == "Los Angeles")
+```
+
+```{r}
+ggplot(epa_LA) +
+  geom_point(mapping = aes(x = Site.Name, y = dailyPM2.5, colour = factor(Year))) +
+  scale_color_manual(values=c('skyblue', 'slateblue')) +
+  labs(x = "LA Site Name", y = "Daily PM2.5 Concentration (ug/m^3 LC)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = .5, size = 5))
+```
+
+```{r}
+epa_LA %>%
+  group_by(Site.Name,Year) %>%
+  summarise(mean = mean(dailyPM2.5,na.rm = TRUE),
+            median = median(dailyPM2.5,na.rm = TRUE),
+            sd = sd(dailyPM2.5),
+            min = min(dailyPM2.5),
+            max = max(dailyPM2.5),
+            IQR = IQR(dailyPM2.5,na.rm = TRUE))
+```
+
+We can notice that the sites with both colors are sites that existed in both 2002 and 2020, among which, the 2022 mean daily PM2.5 concentration was smaller compared to 2002 mean. New sites that were present in 2022 showed average daily PM2.5 concentration lower than 13. Among the new sites, Compton, Long beach route 710-near road, and North Hollywood had the highest mean daily PM2.5 concentration and most often produced maximum values as well. This is possibly due to the high population, high transportation activity, and geographical reasons. Overall, there is an improvement in air quality in California over the last 20 years.
